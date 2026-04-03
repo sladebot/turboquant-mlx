@@ -30,6 +30,11 @@ dist/
 .eggs/
 pip-wheel-metadata/
 
+# Generated visual comparison outputs
+artifacts/visual_compare.md
+artifacts/visual_compare.html
+artifacts/reports/
+
 # Editor and OS temp files
 .DS_Store
 *.tmp
