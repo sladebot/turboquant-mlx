@@ -1,0 +1,40 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+TurboQuant-arXiv-2504.19874.md
+scripts/
+
+# Test, type-checker, and linter caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Coverage and test outputs
+.coverage
+.coverage.*
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Editor and OS temp files
+.DS_Store
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.#*

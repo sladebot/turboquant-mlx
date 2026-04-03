@@ -1,12 +1,15 @@
+from __future__ import annotations
+
 # turboquant/outlier.py
 import mlx.core as mx
 import numpy as np
 
 class OutlierHandler:
-    """Track per-channel magnitudes via EMA; split/merge outlier channels.
+    """Track per-channel magnitudes via EMA for mixed-precision TurboQuant.
 
-    After warmup, channels with EMA magnitude > threshold × median are
-    stored as fp16 without quantization.
+    After warmup, channels with EMA magnitude > threshold × median are marked
+    as outliers so they can be routed to a separate higher-bit TurboQuant
+    instance, matching the paper's split-channel setup.
     """
 
     def __init__(self, head_dim: int, threshold: float = 3.0,
@@ -34,7 +37,12 @@ class OutlierHandler:
         if self._outlier_indices is None and self._token_count >= self.warmup:
             median = np.median(self._ema)
             outlier_mask = self._ema > self.threshold * median
-            indices = np.where(outlier_mask)[0][:self.max_outlier_channels]
+            candidates = np.where(outlier_mask)[0]
+            if len(candidates) > self.max_outlier_channels:
+                order = np.argsort(self._ema[candidates])[::-1]
+                candidates = candidates[order[:self.max_outlier_channels]]
+                candidates = np.sort(candidates)
+            indices = candidates
             self._outlier_indices = indices
 
     def split(self, x: mx.array) -> tuple:
@@ -51,6 +59,41 @@ class OutlierHandler:
         main_idx = np.delete(all_idx, idx)
         main = x[..., main_idx.tolist()]
         return main, outlier_vals, idx
+
+    @property
+    def outlier_indices(self) -> np.ndarray:
+        """Return the fixed outlier set selected after warmup."""
+        if self._outlier_indices is None:
+            return np.array([], dtype=np.int32)
+        return self._outlier_indices.astype(np.int32, copy=False)
+
+    def build_split_config(self, outlier_bits: int, regular_bits: int):
+        """Build the paper-style mixed-precision split config from selected outliers."""
+        from turboquant_mlx.polar_quant import SplitQuantizationConfig
+
+        return SplitQuantizationConfig(
+            head_dim=self.head_dim,
+            outlier_indices=tuple(int(i) for i in self.outlier_indices.tolist()),
+            outlier_bits=outlier_bits,
+            regular_bits=regular_bits,
+        )
+
+    def build_split_quantizer(
+        self,
+        outlier_quantizer,
+        regular_quantizer,
+        *,
+        outlier_bits: int,
+        regular_bits: int,
+    ):
+        """Construct a SplitTurboQuant wired to the selected outlier channels."""
+        from turboquant_mlx.polar_quant import SplitTurboQuant
+
+        config = self.build_split_config(
+            outlier_bits=outlier_bits,
+            regular_bits=regular_bits,
+        )
+        return SplitTurboQuant(config, outlier_quantizer, regular_quantizer)
 
     def merge(self, main: mx.array, outlier_values: mx.array,
               outlier_indices: np.ndarray) -> mx.array:
